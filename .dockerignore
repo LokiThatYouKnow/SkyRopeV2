@@ -1,0 +1,51 @@
+# ===== Git / IDE =====
+.git
+.gitignore
+.gitattributes
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# ===== Python =====
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.eggs
+*.egg
+dist/
+build/
+.pytest_cache
+.mypy_cache
+
+# ===== 大文件数据集 (通过volume挂载，不打包进镜像) =====
+dataset/*.jsonl
+dataset/*.parquet
+dataset/*.arrow
+dataset/*.png
+dataset/*.jpg
+dataset/*.jpeg
+
+# ===== 模型权重/输出 =====
+out/
+checkpoints/
+*.pth
+*.pt
+*.safetensors
+*.bin
+
+# ===== 图片 =====
+images/
+dataset/eval_images/
+
+# ===== 日志 =====
+*.log
+wandb/
+swanlog/
+
+# ===== 其他 =====
+*.tmp
+*.temp
+**/.ipynb_checkpoints

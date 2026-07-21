@@ -1,0 +1,163 @@
+# ============================================================
+# skyRope - Docker Compose
+# 所有训练脚本统一，通过 MODEL_TYPE=llm|vlm 环境变量切换
+#
+# 用法:
+#   LLM:  docker compose up -d pretrain
+#   VLM:  MODEL_TYPE=vlm docker compose up -d pretrain
+#   Shell: docker compose --profile debug run shell
+# ============================================================
+version: "3.8"
+
+x-skyrope-defaults: &defaults
+  image: skyrope-llm:latest
+  volumes:
+    - ./dataset:/data:ro
+    - ./output:/output
+    - ./checkpoints:/checkpoints
+  environment:
+    - PYTHONUNBUFFERED=1
+    - TOKENIZERS_PARALLELISM=false
+    - OMP_NUM_THREADS=${OMP_NUM_THREADS:-8}
+    - NCCL_IB_DISABLE=${NCCL_IB_DISABLE:-0}
+    - NCCL_NET_GDR_LEVEL=${NCCL_NET_GDR_LEVEL:-2}
+    - MODEL_TYPE=${MODEL_TYPE:-llm}
+  shm_size: "16gb"
+  restart: unless-stopped
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: ${GPU_COUNT:-all}
+            capabilities: [gpu]
+
+services:
+  # ==========================================
+  # 统一训练服务 (通过 MODEL_TYPE 环境变量切换 LLM/VLM)
+  #   LLM: docker compose up -d <service>
+  #   VLM: MODEL_TYPE=vlm docker compose up -d <service>
+  # ==========================================
+
+  pretrain:
+    <<: *defaults
+    container_name: skyrope-pretrain
+    command: >
+      pretrain
+      --epochs ${EPOCHS:-2}
+      --batch_size ${BATCH_SIZE:-32}
+      --learning_rate ${LR:-5e-4}
+      --accumulation_steps ${ACCUM_STEPS:-8}
+      --from_weight ${FROM_WEIGHT:-none}
+      --freeze_llm ${FREEZE_LLM:-2}
+      --data_path /dataset/${DATA_FILE:-pretrain_t2t_mini.jsonl}
+      --save_weight ${SAVE_WEIGHT:-pretrain}
+      --use_wandb
+      --wandb_project ${WANDB_PROJECT:-skyRope}
+      ${EXTRA_ARGS:-}
+
+  sft:
+    <<: *defaults
+    container_name: skyrope-sft
+    command: >
+      sft
+      --epochs ${EPOCHS:-3}
+      --batch_size ${BATCH_SIZE:-16}
+      --learning_rate ${LR:-5e-5}
+      --from_weight ${FROM_WEIGHT:-pretrain}
+      --freeze_llm ${FREEZE_LLM:-1}
+      --data_path /dataset/${DATA_FILE:-sft_t2t_mini.jsonl}
+      --save_weight ${SAVE_WEIGHT:-full_sft}
+      --use_wandb
+      --wandb_project ${WANDB_PROJECT:-skyRope}
+      ${EXTRA_ARGS:-}
+
+  lora:
+    <<: *defaults
+    container_name: skyrope-lora
+    command: >
+      lora
+      --epochs ${EPOCHS:-3}
+      --batch_size ${BATCH_SIZE:-8}
+      --learning_rate ${LR:-1e-4}
+      --from_weight ${FROM_WEIGHT:-full_sft}
+      --lora_rank ${LORA_RANK:-16}
+      --data_path /dataset/${DATA_FILE:-lora_medical.jsonl}
+      --save_weight ${SAVE_WEIGHT:-lora}
+      --use_wandb
+      --wandb_project ${WANDB_PROJECT:-skyRope}
+      ${EXTRA_ARGS:-}
+
+  distill:
+    <<: *defaults
+    container_name: skyrope-distill
+    command: >
+      distill
+      --epochs ${EPOCHS:-3}
+      --batch_size ${BATCH_SIZE:-8}
+      --learning_rate ${LR:-1e-4}
+      --from_weight ${FROM_WEIGHT:-none}
+      --teacher_weight ${TEACHER_WEIGHT:-full_sft}
+      --data_path /dataset/${DATA_FILE:-sft_t2t_mini.jsonl}
+      --save_weight ${SAVE_WEIGHT:-distill}
+      --use_wandb
+      --wandb_project ${WANDB_PROJECT:-skyRope}
+      ${EXTRA_ARGS:-}
+
+  dpo:
+    <<: *defaults
+    container_name: skyrope-dpo
+    command: >
+      dpo
+      --epochs ${EPOCHS:-1}
+      --batch_size ${BATCH_SIZE:-4}
+      --learning_rate ${LR:-5e-7}
+      --from_weight ${FROM_WEIGHT:-full_sft}
+      --dpo_beta ${DPO_BETA:-0.1}
+      --data_path /dataset/dpo.jsonl
+      --save_weight ${SAVE_WEIGHT:-dpo}
+      --use_wandb
+      --wandb_project ${WANDB_PROJECT:-skyRope}
+      ${EXTRA_ARGS:-}
+
+  grpo:
+    <<: *defaults
+    container_name: skyrope-grpo
+    command: >
+      grpo
+      --epochs ${EPOCHS:-1}
+      --batch_size ${BATCH_SIZE:-2}
+      --learning_rate ${LR:-3e-7}
+      --from_weight ${FROM_WEIGHT:-full_sft}
+      --data_path /dataset/rlaif.jsonl
+      --save_weight ${SAVE_WEIGHT:-grpo}
+      --use_wandb
+      --wandb_project ${WANDB_PROJECT:-skyRope}
+      ${EXTRA_ARGS:-}
+
+  agent:
+    <<: *defaults
+    container_name: skyrope-agent
+    command: >
+      agent
+      --epochs ${EPOCHS:-1}
+      --batch_size ${BATCH_SIZE:-2}
+      --learning_rate ${LR:-3e-7}
+      --from_weight ${FROM_WEIGHT:-full_sft}
+      --data_path /dataset/agent_rl.jsonl
+      --save_weight ${SAVE_WEIGHT:-agent}
+      --use_wandb
+      --wandb_project ${WANDB_PROJECT:-skyRope}
+      ${EXTRA_ARGS:-}
+
+  # ==========================================
+  # 交互式Shell
+  # ==========================================
+  shell:
+    <<: *defaults
+    container_name: skyrope-shell
+    command: bash
+    stdin_open: true
+    tty: true
+    profiles:
+      - debug

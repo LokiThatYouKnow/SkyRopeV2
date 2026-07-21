@@ -1,0 +1,67 @@
+# ===========================
+# Python
+# ===========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ===========================
+# Virtual Environment
+# ===========================
+.venv/
+venv/
+env/
+.env
+
+# ===========================
+# Model Weights & Checkpoints
+# ===========================
+*.pth
+*.pt
+*.safetensors
+*.bin
+checkpoints/
+out/
+output/
+model/siglip2-base-p32-256-ve/
+
+# ===========================
+# Datasets (large files — download separately)
+# ===========================
+dataset/*.jsonl
+dataset/*.parquet
+
+# ===========================
+# IDE & Editor
+# ===========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===========================
+# OS
+# ===========================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ===========================
+# Logs
+# ===========================
+wandb/
+swanlog/
+*.log
+
+# ===========================
+# Misc
+# ===========================
+*.tmp
+*.temp
+.msc
+.mv
