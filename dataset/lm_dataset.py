@@ -128,6 +128,97 @@ class PretrainDataset(Dataset):
         return input_ids, labels
 
 
+class PackedPretrainDataset(Dataset):
+    """把多条文本装箱到定长序列，消除 padding 浪费。
+
+    与 PretrainDataset 的区别：
+      - 每个样本都是"装满"的 max_length 序列（填充率接近 100%，而按条 padding 只有 ~57%）
+      - 文档之间用 eos 分隔；放不下的文档会切分续接到下一个 bin（语言模型预训练的标准做法）
+    """
+
+    def __init__(self, jsonl_path=None, tokenizer=None, max_length=340, max_docs=None, texts=None):
+        super().__init__()
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.eos_id = tokenizer.eos_token_id
+        self.pad_id = tokenizer.pad_token_id
+        self.bins = []
+        buf = []
+        if texts is None:
+            texts = []
+            with open(jsonl_path, encoding='utf-8') as f:
+                for i, line in enumerate(f):
+                    if max_docs is not None and i >= max_docs:
+                        break
+                    line = line.strip()
+                    if not line:
+                        continue
+                    texts.append(json.loads(line)['text'])
+        for text in texts:
+                ids = tokenizer(text, add_special_tokens=False).input_ids
+                ids = ids + [self.eos_id]
+                while len(ids) >= max_length - len(buf):
+                    take = max_length - len(buf)
+                    buf.extend(ids[:take])
+                    ids = ids[take:]
+                    self.bins.append(buf)
+                    buf = []
+                buf.extend(ids)
+        if buf:
+            buf += [self.pad_id] * (max_length - len(buf))
+            self.bins.append(buf)
+
+    def __len__(self):
+        return len(self.bins)
+
+    def __getitem__(self, index):
+        input_ids = torch.tensor(self.bins[index], dtype=torch.long)
+        labels = input_ids.clone()
+        labels[input_ids == self.pad_id] = -100
+        return input_ids, labels
+
+
+class MemmapPackedPretrainDataset(Dataset):
+    """预分词分片(.npy, uint16) → memmap 流式定长切块（拼接式装箱）。
+
+    与 PackedPretrainDataset 的区别：内存恒定（不把全量 token 放进 Python list），
+    适合全量语料（十几亿 token）；文档间已有 eos 分隔，文档可跨块边界。
+    """
+
+    def __init__(self, shard_dir, max_length=512):
+        import glob
+        import numpy as np
+        self.files = sorted(glob.glob(os.path.join(shard_dir, 'shard_*.npy')))
+        assert self.files, f'{shard_dir} 下没有 shard_*.npy，请先跑 scripts/pretokenize.py'
+        self.arrays = [np.load(f, mmap_mode='r') for f in self.files]
+        self.lens = [int(a.size) for a in self.arrays]
+        self.cum = np.cumsum([0] + self.lens)
+        self.max_length = max_length
+        self.total = int(self.cum[-1])
+        self.n_blocks = self.total // max_length
+        self.pad_id = 0
+
+    def __len__(self):
+        return self.n_blocks
+
+    def _slice(self, start, n):
+        import numpy as np
+        out, pos, need = [], start, n
+        si = int(np.searchsorted(self.cum, start, side='right') - 1)
+        while need > 0 and si < len(self.arrays):
+            off = pos - int(self.cum[si])
+            take = min(need, self.lens[si] - off)
+            out.append(np.asarray(self.arrays[si][off:off + take], dtype=np.int64))
+            need -= take
+            pos += take
+            si += 1
+        return np.concatenate(out) if out else np.empty(0, dtype=np.int64)
+
+    def __getitem__(self, index):
+        ids = torch.from_numpy(self._slice(index * self.max_length, self.max_length).copy())
+        return ids, ids.clone()
+
+
 class SFTDataset(Dataset):
     def __init__(self, jsonl_path, tokenizer, max_length=1024):
         super().__init__()

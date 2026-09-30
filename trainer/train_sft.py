@@ -29,6 +29,8 @@ from dataset.lm_dataset import SFTDataset, VLMDataset
 from trainer.trainer_utils import (get_lr, Logger, is_main_process, vlm_checkpoint,
                                     init_distributed_mode, setup_seed, SkipBatchSampler,
                                     init_model, init_vlm_model, vlm_collate_fn)
+from trainer.optim_utils import build_optimizer, build_lr_lambda, set_lr_mult
+from model.model_skyRope import MOEFeedForward
 
 warnings.filterwarnings('ignore')
 
@@ -38,9 +40,7 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
     last_step = start_step
     for step, batch in enumerate(loader, start=start_step + 1):
         last_step = step
-        lr = get_lr(epoch * iters + step, args.epochs * iters, args.learning_rate)
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
+        set_lr_mult(optimizer, lr_fn(epoch * iters + step))
 
         if is_vlm:
             input_ids, labels, pixel_values = batch
@@ -122,6 +122,19 @@ if __name__ == "__main__":
     parser.add_argument('--num_hidden_layers', default=8, type=int, help="隐藏层数量")
     parser.add_argument('--max_seq_len', default=1024, type=int, help="训练的最大截断长度")
     parser.add_argument('--use_moe', default=0, type=int, choices=[0, 1], help="是否使用MoE架构")
+    parser.add_argument('--num_experts', default=4, type=int, help="MoE 专家总数")
+    parser.add_argument('--num_experts_per_tok', default=1, type=int, help="每个 token 激活的专家数")
+    parser.add_argument('--moe_intermediate_size', default=0, type=int, help="专家隐层维度，0=与 dense 相同")
+    parser.add_argument('--moe_impl', default='loop', choices=['loop', 'permute'], help="MoE 前向实现")
+    parser.add_argument('--balance_mode', default='aux', choices=['aux', 'aux_free'], help="MoE 负载均衡方式")
+    parser.add_argument('--n_shared_experts', default=0, type=int, help="常驻共享专家数")
+    parser.add_argument('--tokenizer_path', default='../model', type=str, help="分词器目录（换词表时必改）")
+    parser.add_argument('--vocab_size', default=0, type=int, help="词表大小，0=自动读取")
+    parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'adamw_fused', 'muon', 'muon_batched'], help="优化器")
+    parser.add_argument('--muon_lr', default=0.02, type=float, help="Muon 组学习率")
+    parser.add_argument('--weight_decay', default=0.0, type=float, help="权重衰减")
+    parser.add_argument('--lr_schedule', default='cosine', choices=['cosine', 'warmup_cosine', 'wsd', 'const'], help="学习率调度")
+    parser.add_argument('--warmup_ratio', default=0.02, type=float, help="warmup 比例")
     parser.add_argument("--data_path", type=str, default="../dataset/sft_t2t_mini.jsonl", help="SFT数据路径")
     parser.add_argument('--from_weight', default='pretrain', type=str, help="基于哪个权重训练，none=从头开始")
     parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="是否自动检测&续训")
@@ -142,12 +155,21 @@ if __name__ == "__main__":
 
     # ========== 2. 配置目录、模型参数、检查ckp ==========
     os.makedirs(args.save_dir, exist_ok=True)
+    if args.vocab_size == 0:                       # 自动对齐分词器词表（必须与预训练一致）
+        from transformers import AutoTokenizer as _AT
+        args.vocab_size = len(_AT.from_pretrained(args.tokenizer_path))
+    Logger(f'词表: {args.vocab_size} ({args.tokenizer_path})')
+    moe_kwargs = dict(vocab_size=args.vocab_size, num_experts=args.num_experts,
+                      num_experts_per_tok=args.num_experts_per_tok, moe_impl=args.moe_impl,
+                      balance_mode=args.balance_mode, n_shared_experts=args.n_shared_experts)
+    if args.moe_intermediate_size > 0:
+        moe_kwargs['moe_intermediate_size'] = args.moe_intermediate_size
     if is_vlm:
         model_config = VLMConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers,
-                                 max_position_embeddings=args.max_seq_len, use_moe=bool(args.use_moe))
+                                 max_position_embeddings=args.max_seq_len, use_moe=bool(args.use_moe), **moe_kwargs)
     else:
         model_config = skyRopeConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers,
-                                     max_position_embeddings=args.max_seq_len, use_moe=bool(args.use_moe))
+                                     max_position_embeddings=args.max_seq_len, use_moe=bool(args.use_moe), **moe_kwargs)
     ckp_data = vlm_checkpoint(model_config, weight=args.save_weight, save_dir='../checkpoints') if args.from_resume == 1 else None
 
     # ========== 3. 设置混合精度 ==========
@@ -173,12 +195,16 @@ if __name__ == "__main__":
                               image_token_len=model_config.image_token_len,
                               max_length=model_config.max_position_embeddings)
     else:
-        model, tokenizer = init_model(model_config, from_weight=args.from_weight, device=args.device)
+        model, tokenizer = init_model(model_config, from_weight=args.from_weight, device=args.device,
+                                      tokenizer_path=args.tokenizer_path)
         train_ds = SFTDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
 
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
-    optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=args.learning_rate)
+    optimizer, opt_desc = build_optimizer(model, kind=args.optimizer, lr=args.learning_rate,
+                                          muon_lr=args.muon_lr, weight_decay=args.weight_decay)
+    Logger(f'优化器: {opt_desc}')
+    moe_modules = [m for m in model.modules() if isinstance(m, MOEFeedForward)]
 
     # ========== 6. 从ckp恢复状态 ==========
     start_epoch, start_step = 0, 0
@@ -199,6 +225,10 @@ if __name__ == "__main__":
 
     # ========== 8. 开始训练 ==========
     collate_fn = vlm_collate_fn if is_vlm else None
+    total_steps = args.epochs * max(len(train_ds) // args.batch_size, 1)
+    lr_fn = build_lr_lambda(args.lr_schedule, warmup_steps=int(total_steps * args.warmup_ratio),
+                            total_steps=total_steps)
+    Logger(f'调度: {args.lr_schedule} (total_steps≈{total_steps})  wd={args.weight_decay}')
     for epoch in range(start_epoch, args.epochs):
         train_sampler and train_sampler.set_epoch(epoch)
         setup_seed(42 + epoch)

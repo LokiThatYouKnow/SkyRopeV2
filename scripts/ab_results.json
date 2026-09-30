@@ -1,0 +1,27 @@
+[
+ {
+  "name": "stack24k",
+  "seed": 42,
+  "steps": 50,
+  "real_tokens": 614400,
+  "wall_s": 18.48152829997707,
+  "tok_per_s": 33244.00396047129,
+  "ms_per_step": 369.63056599954143,
+  "peak_gib": 6.894186496734619,
+  "params_m": 80.360832,
+  "active_m": 50.476416,
+  "train_loss": 6.614639329910278,
+  "val_loss": NaN,
+  "grad_norm": 0.9403315484523773,
+  "nan": 0,
+  "moe_load_max": 0.2951391637325287,
+  "moe_load_min": 0.18925252556800842,
+  "moe_imbalance": 1.5594992637634277,
+  "update_rel": {
+   "embed/head": 0.024958,
+   "1d/thin": 0.000445,
+   "hidden2d(Muon组)": 0.024889,
+   "router": 0.025009
+  }
+ }
+]

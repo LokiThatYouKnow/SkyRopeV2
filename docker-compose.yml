@@ -22,6 +22,7 @@ x-skyrope-defaults: &defaults
     - NCCL_IB_DISABLE=${NCCL_IB_DISABLE:-0}
     - NCCL_NET_GDR_LEVEL=${NCCL_NET_GDR_LEVEL:-2}
     - MODEL_TYPE=${MODEL_TYPE:-llm}
+    - USE_MOE=${USE_MOE:-1}
   shm_size: "16gb"
   restart: unless-stopped
   deploy:
@@ -49,6 +50,7 @@ services:
       --learning_rate ${LR:-5e-4}
       --accumulation_steps ${ACCUM_STEPS:-8}
       --from_weight ${FROM_WEIGHT:-none}
+      --use_moe ${USE_MOE:-1}
       --freeze_llm ${FREEZE_LLM:-2}
       --data_path /dataset/${DATA_FILE:-pretrain_t2t_mini.jsonl}
       --save_weight ${SAVE_WEIGHT:-pretrain}
@@ -65,6 +67,7 @@ services:
       --batch_size ${BATCH_SIZE:-16}
       --learning_rate ${LR:-5e-5}
       --from_weight ${FROM_WEIGHT:-pretrain}
+      --use_moe ${USE_MOE:-1}
       --freeze_llm ${FREEZE_LLM:-1}
       --data_path /dataset/${DATA_FILE:-sft_t2t_mini.jsonl}
       --save_weight ${SAVE_WEIGHT:-full_sft}
@@ -81,6 +84,7 @@ services:
       --batch_size ${BATCH_SIZE:-8}
       --learning_rate ${LR:-1e-4}
       --from_weight ${FROM_WEIGHT:-full_sft}
+      --use_moe ${USE_MOE:-1}
       --lora_rank ${LORA_RANK:-16}
       --data_path /dataset/${DATA_FILE:-lora_medical.jsonl}
       --save_weight ${SAVE_WEIGHT:-lora}
@@ -97,6 +101,7 @@ services:
       --batch_size ${BATCH_SIZE:-8}
       --learning_rate ${LR:-1e-4}
       --from_weight ${FROM_WEIGHT:-none}
+      --use_moe ${USE_MOE:-1}
       --teacher_weight ${TEACHER_WEIGHT:-full_sft}
       --data_path /dataset/${DATA_FILE:-sft_t2t_mini.jsonl}
       --save_weight ${SAVE_WEIGHT:-distill}
@@ -113,6 +118,7 @@ services:
       --batch_size ${BATCH_SIZE:-4}
       --learning_rate ${LR:-5e-7}
       --from_weight ${FROM_WEIGHT:-full_sft}
+      --use_moe ${USE_MOE:-1}
       --dpo_beta ${DPO_BETA:-0.1}
       --data_path /dataset/dpo.jsonl
       --save_weight ${SAVE_WEIGHT:-dpo}
@@ -129,6 +135,7 @@ services:
       --batch_size ${BATCH_SIZE:-2}
       --learning_rate ${LR:-3e-7}
       --from_weight ${FROM_WEIGHT:-full_sft}
+      --use_moe ${USE_MOE:-1}
       --data_path /dataset/rlaif.jsonl
       --save_weight ${SAVE_WEIGHT:-grpo}
       --use_wandb
@@ -144,6 +151,7 @@ services:
       --batch_size ${BATCH_SIZE:-2}
       --learning_rate ${LR:-3e-7}
       --from_weight ${FROM_WEIGHT:-full_sft}
+      --use_moe ${USE_MOE:-1}
       --data_path /dataset/agent_rl.jsonl
       --save_weight ${SAVE_WEIGHT:-agent}
       --use_wandb

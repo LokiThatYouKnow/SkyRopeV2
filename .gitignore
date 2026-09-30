@@ -34,6 +34,12 @@ model/siglip2-base-p32-256-ve/
 # ===========================
 dataset/*.jsonl
 dataset/*.parquet
+# 预分词分片（GB 级）
+dataset/tokens_*/
+dataset/*.npy
+dataset/*.json
+# 24k 分词器产物（随权重一起推送）
+model_tok24k/
 
 # ===========================
 # IDE & Editor

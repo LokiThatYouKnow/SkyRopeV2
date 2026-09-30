@@ -82,6 +82,7 @@ def setup_seed(seed: int):
 def init_model(lm_config, from_weight='pretrain', tokenizer_path='../model',
                save_dir='../out', device='cuda'):
     """初始化 LLM 模型 (skyRopeForCausalLM)"""
+    tokenizer_path = os.environ.get('SKYROPE_TOKENIZER', tokenizer_path)   # 换词表时可用环境变量统一指定
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     model = skyRopeForCausalLM(lm_config)
 
@@ -111,6 +112,7 @@ def init_vlm_model(vlm_config, from_weight='pretrain_vlm', tokenizer_path='../mo
       1 = 冻结中间层，仅训练首尾层 + vision_proj（推荐用于 VLM SFT）
       2 = 完全冻结 LLM backbone，仅训练 vision_proj（推荐用于 VLM 预训练对齐阶段）
     """
+    tokenizer_path = os.environ.get('SKYROPE_TOKENIZER', tokenizer_path)
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     model = skyRopeVLM(vlm_config, vision_model_path)
 

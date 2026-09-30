@@ -106,7 +106,10 @@ class skyRopeVLM(skyRopeForCausalLM):
         batch_size, seq_len = input_ids.shape
         if hasattr(past_key_values, "layers"):
             past_key_values = None
-        start_pos = past_key_values[0][0].shape[1] if past_key_values[0] is not None else 0
+        window = self.config.max_positions // 4
+        past_key_values = [c if isinstance(c, SimpleSWCache) else SimpleSWCache(window)
+                           for c in (past_key_values or [None] * len(self.model.layers))]
+        start_pos = past_key_values[0].cum_len
 
         hidden_states = self.model.dropout(self.model.embed_tokens(input_ids))
 
@@ -147,7 +150,7 @@ class skyRopeVLM(skyRopeForCausalLM):
 
         hidden_states = self.model.norm(hidden_states)
 
-        aux_loss = sum([l.mlp.aux_loss for l in self.model.layers if isinstance(l.mlp, MOEFeedForward)], hidden_states.new_zero(1).squeeze())
+        aux_loss = sum([l.mlp.aux_loss for l in self.model.layers if isinstance(l.mlp, MOEFeedForward)], hidden_states.new_zeros(1).squeeze())
         aux_loss = aux_loss + sum(p.sum() for p in self.vision_proj.parameters()) * 0
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])

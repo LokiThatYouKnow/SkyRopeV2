@@ -105,7 +105,9 @@ def compute_log_probs(model, input_ids, labels, pixel_values=None):
     logits = outputs.logits[..., :-1, :].contiguous()
     shift_labels = labels[..., 1:].contiguous()
     log_probs = F.log_softmax(logits, dim=-1)
-    token_log_probs = torch.gather(log_probs, -1, shift_labels.unsqueeze(-1)).squeeze(-1)
+    # -100 是"忽略"标记，直接拿去 gather 会索引越界（CUDA device-side assert），先夹到 0 再用 mask 抹掉
+    gather_labels = shift_labels.clamp(min=0)
+    token_log_probs = torch.gather(log_probs, -1, gather_labels.unsqueeze(-1)).squeeze(-1)
     mask = (shift_labels != -100).float()
     return (token_log_probs * mask).sum(dim=-1) / mask.sum(dim=-1).clamp(min=1)
 
