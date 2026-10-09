@@ -1,7 +1,8 @@
 # SkyRopeV2 · 从零构建的 LLM / VLM 训练框架
 
-> 不用 Trainer 黑盒：自己实现 Transformer 核心、注意力、MoE、优化器与完整训练管线。
-> 一套代码，`--model_type llm|vlm` 切换纯文本与多模态。
+> **单卡消费级显卡，用一套代码从零训出 LLM 与 VLM：自研 SWA / CSA / HCA / MLA 四种注意力 + MoE 双负载均衡 + Muon 优化器；等墙钟时间下 val loss 比 AdamW 基线低 0.98，吞吐 21,188 tok/s（+75%）、显存仅 6.2 GB。**
+>
+> 不用 Trainer 黑盒：自己实现 Transformer 核心、注意力、MoE、优化器与完整训练管线；一套代码 `--model_type llm|vlm` 切换纯文本与多模态。
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.6-ee4c2c)
